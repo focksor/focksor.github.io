@@ -7,6 +7,34 @@
             <webMaster>focksor@outlook.com (focksor)</webMaster><lastBuildDate>Sat, 31 May 2025 15:12:41 &#43;0800</lastBuildDate>
             <atom:link href="https://focksor.github.io/index.xml" rel="self" type="application/rss+xml" />
         <item>
+    <title>uWSGI&#43;CGI 最简实践</title>
+    <link>https://focksor.github.io/posts/uwsgi&#43;cgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5/</link>
+    <pubDate>Sat, 31 May 2025 15:12:41 &#43;0800</pubDate>
+    <author>focksor</author>
+    <guid>https://focksor.github.io/posts/uwsgi&#43;cgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5/</guid>
+    <description><![CDATA[<h2 id="概况">概况</h2>
+<p>uWSGI 提供了一个 cgi 插件，可以让你通过 uWSGI 来运行传统的 CGI 脚本（虽然现在一般不会有人这样做）。</p>
+<p>⚠️ 注意事项</p>
+<ul>
+<li>uWSGI 的 CGI 插件性能一般，并不适合高并发或生产环境，只适合兼容旧系统或做一些调试。</li>
+<li>它只是提供了一个兼容层，内部仍是 fork+exec 来执行 CGI 脚本，性能开销与传统 CGI 接近。</li>
+<li>uWSGI 更多的是用于运行 WSGI 应用，如 Flask、Django，而不是传统 CGI。</li>
+</ul>
+<h2 id="安装-uwsgi">安装 uWSGI</h2>
+<h3 id="编译安装-uwsgicgi-plugin">编译安装 uWSGI+CGI plugin</h3>
+<p>uWSGI 默认不支持 CGI 应用。要支持 CGI，则需要安装其 CGI plugin。通过以下命令编译 uWSGI 及其 CGI 补丁：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">git clone git@github.com:unbit/uwsgi.git -b uwsgi-2.0 --depth<span class="o">=</span><span class="m">1</span>
+</span></span><span class="line"><span class="cl"><span class="nb">cd</span> uwsgi
+</span></span><span class="line"><span class="cl">make <span class="nv">PROFILE</span><span class="o">=</span>cgi
+</span></span><span class="line"><span class="cl">python uwsgiconfig.py --plugin plugins/cgi</span></span></code></pre></div></div>
+<p>编译完成后，通过以下命令验证 uWSGI 的可用性：</p>]]></description>
+</item>
+<item>
     <title>Hello World!</title>
     <link>https://focksor.github.io/posts/hello_world/</link>
     <pubDate>Mon, 31 Mar 2025 22:27:49 &#43;0800</pubDate>

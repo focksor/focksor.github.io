@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en-us">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="robots" content="noodp" />
+        <title>uWSGI&#43;CGI 最简实践 - focksor&#39;s blog</title><meta name="Description" content="This is focksor&#39;s blog"><meta property="og:url" content="https://focksor.github.io/posts/uwsgi&#43;cgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5/">
+  <meta property="og:site_name" content="focksor&#39;s blog">
+  <meta property="og:title" content="uWSGI&#43;CGI 最简实践">
+  <meta property="og:description" content="概况 uWSGI 提供了一个 cgi 插件，可以让你通过 uWSGI 来运行传统的 CGI 脚本（虽然现在一般不会有人这样做）。
+⚠️ 注意事项
+uWSGI 的 CGI 插件性能一般，并不适合高并发或生产环境，只适合兼容旧系统或做一些调试。 它只是提供了一个兼容层，内部仍是 fork&#43;exec 来执行 CGI 脚本，性能开销与传统 CGI 接近。 uWSGI 更多的是用于运行 WSGI 应用，如 Flask、Django，而不是传统 CGI。 安装 uWSGI 编译安装 uWSGI&#43;CGI plugin uWSGI 默认不支持 CGI 应用。要支持 CGI，则需要安装其 CGI plugin。通过以下命令编译 uWSGI 及其 CGI 补丁：
+git clone git@github.com:unbit/uwsgi.git -b uwsgi-2.0 --depth=1 cd uwsgi make PROFILE=cgi python uwsgiconfig.py --plugin plugins/cgi 编译完成后，通过以下命令验证 uWSGI 的可用性：">
+  <meta property="og:locale" content="en_us">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2025-05-31T15:12:41+08:00">
+    <meta property="article:modified_time" content="2025-05-31T15:12:41+08:00">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="uWSGI&#43;CGI 最简实践">
+  <meta name="twitter:description" content="概况 uWSGI 提供了一个 cgi 插件，可以让你通过 uWSGI 来运行传统的 CGI 脚本（虽然现在一般不会有人这样做）。
+⚠️ 注意事项
+uWSGI 的 CGI 插件性能一般，并不适合高并发或生产环境，只适合兼容旧系统或做一些调试。 它只是提供了一个兼容层，内部仍是 fork&#43;exec 来执行 CGI 脚本，性能开销与传统 CGI 接近。 uWSGI 更多的是用于运行 WSGI 应用，如 Flask、Django，而不是传统 CGI。 安装 uWSGI 编译安装 uWSGI&#43;CGI plugin uWSGI 默认不支持 CGI 应用。要支持 CGI，则需要安装其 CGI plugin。通过以下命令编译 uWSGI 及其 CGI 补丁：
+git clone git@github.com:unbit/uwsgi.git -b uwsgi-2.0 --depth=1 cd uwsgi make PROFILE=cgi python uwsgiconfig.py --plugin plugins/cgi 编译完成后，通过以下命令验证 uWSGI 的可用性：">
+<meta name="application-name" content="focksor&#39;s blog">
+<meta name="apple-mobile-web-app-title" content="focksor&#39;s blog">
+<meta name="referrer" content="no-referrer" /><meta name="theme-color" content="#ffffff"><meta name="msapplication-TileColor" content="#da532c"><link rel="icon" href="https://avatars.githubusercontent.com/u/29502168?v=4"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5"><link rel="manifest" href="/site.webmanifest"><link rel="canonical" href="https://focksor.github.io/posts/uwsgi&#43;cgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5/" /><link rel="prev" href="https://focksor.github.io/posts/hello_world/" /><link rel="stylesheet" href="/css/style.min.css"><link rel="preload" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+        <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"></noscript><link rel="preload" href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+        <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css"></noscript><script type="application/ld+json">
+    {
+        "@context": "http://schema.org",
+        "@type": "BlogPosting",
+        "headline": "uWSGI+CGI 最简实践",
+        "inLanguage": "en-us",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "https:\/\/focksor.github.io\/posts\/uwsgi\u002bcgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5\/"
+        },"genre": "posts","wordcount":  403 ,
+        "url": "https:\/\/focksor.github.io\/posts\/uwsgi\u002bcgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5\/","datePublished": "2025-05-31T15:12:41+08:00","dateModified": "2025-05-31T15:12:41+08:00","publisher": {
+            "@type": "Organization",
+            "name": ""},"author": {
+                "@type": "Person",
+                "name": "focksor"
+            },"description": ""
+    }
+    </script></head>
+    <body data-header-desktop="fixed" data-header-mobile="auto"><script>(window.localStorage && localStorage.getItem('theme') ? localStorage.getItem('theme') === 'dark' : ('auto' === 'auto' ? window.matchMedia('(prefers-color-scheme: dark)').matches : 'auto' === 'dark')) && document.body.setAttribute('theme', 'dark');</script>
+
+        <div id="mask"></div><div class="wrapper"><header class="desktop" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="focksor&#39;s blog">focksor&#39;s blog</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item" href="/posts/"> Posts </a><a class="menu-item" href="/tags/"> Tags </a><a class="menu-item" href="/categories/"> Categories </a><a class="menu-item" href="https://github.com/focksor/focksor.github.io" title="GitHub" rel="noopener noreffer" target="_blank"><i class='fab fa-github fa-fw' aria-hidden='true'></i>  </a><span class="menu-item delimiter"></span><span class="menu-item search" id="search-desktop">
+                        <input type="text" placeholder="Search titles or contents..." id="search-input-desktop">
+                        <a href="javascript:void(0);" class="search-button search-toggle" id="search-toggle-desktop" title="Search">
+                            <i class="fas fa-search fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <a href="javascript:void(0);" class="search-button search-clear" id="search-clear-desktop" title="Clear">
+                            <i class="fas fa-times-circle fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <span class="search-button search-loading" id="search-loading-desktop">
+                            <i class="fas fa-spinner fa-fw fa-spin" aria-hidden="true"></i>
+                        </span>
+                    </span><a href="javascript:void(0);" class="menu-item theme-switch" title="Switch Theme">
+                    <i class="fas fa-adjust fa-fw" aria-hidden="true"></i>
+                </a></div>
+        </div>
+    </div>
+</header><header class="mobile" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="focksor&#39;s blog">focksor&#39;s blog</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><div class="search-wrapper">
+                    <div class="search mobile" id="search-mobile">
+                        <input type="text" placeholder="Search titles or contents..." id="search-input-mobile">
+                        <a href="javascript:void(0);" class="search-button search-toggle" id="search-toggle-mobile" title="Search">
+                            <i class="fas fa-search fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <a href="javascript:void(0);" class="search-button search-clear" id="search-clear-mobile" title="Clear">
+                            <i class="fas fa-times-circle fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <span class="search-button search-loading" id="search-loading-mobile">
+                            <i class="fas fa-spinner fa-fw fa-spin" aria-hidden="true"></i>
+                        </span>
+                    </div>
+                    <a href="javascript:void(0);" class="search-cancel" id="search-cancel-mobile">
+                        Cancel
+                    </a>
+                </div><a class="menu-item" href="/posts/" title="">Posts</a><a class="menu-item" href="/tags/" title="">Tags</a><a class="menu-item" href="/categories/" title="">Categories</a><a class="menu-item" href="https://github.com/focksor/focksor.github.io" title="GitHub" rel="noopener noreffer" target="_blank"><i class='fab fa-github fa-fw' aria-hidden='true'></i></a><a href="javascript:void(0);" class="menu-item theme-switch" title="Switch Theme">
+                <i class="fas fa-adjust fa-fw" aria-hidden="true"></i>
+            </a></div>
+    </div>
+</header><div class="search-dropdown desktop">
+        <div id="search-dropdown-desktop"></div>
+    </div>
+    <div class="search-dropdown mobile">
+        <div id="search-dropdown-mobile"></div>
+    </div><main class="main">
+                <div class="container"><div class="toc" id="toc-auto">
+            <h2 class="toc-title">Contents</h2>
+            <div class="toc-content always-active" id="toc-content-auto"></div>
+        </div><article class="page single"><h1 class="single-title animate__animated animate__flipInX">uWSGI+CGI 最简实践</h1><div class="post-meta">
+            <div class="post-meta-line"><span class="post-author"><a href="https://github.com/focksor" title="Author" target="_blank" rel="noopener noreffer author" class="author"><i class="fas fa-user-circle fa-fw" aria-hidden="true"></i>focksor</a></span></div>
+            <div class="post-meta-line"><i class="far fa-calendar-alt fa-fw" aria-hidden="true"></i>&nbsp;<time datetime="2025-05-31">2025-05-31</time>&nbsp;<i class="fas fa-pencil-alt fa-fw" aria-hidden="true"></i>&nbsp;403 words&nbsp;
+                <i class="far fa-clock fa-fw" aria-hidden="true"></i>&nbsp;2 minutes&nbsp;
+    
+
+    
+        
+
+        
+        
+            <span id="busuanzi_container_value_page_pv"><i class="far fa-eye fa-fw"></i>
+                
+                <span id="busuanzi_value_page_pv"></span>&nbsp;views</span>
+        
+    
+
+</div>
+        </div><div class="details toc" id="toc-static"  data-kept="">
+                <div class="details-summary toc-title">
+                    <span>Contents</span>
+                    <span><i class="details-icon fas fa-angle-right" aria-hidden="true"></i></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#概况">概况</a></li>
+    <li><a href="#安装-uwsgi">安装 uWSGI</a>
+      <ul>
+        <li><a href="#编译安装-uwsgicgi-plugin">编译安装 uWSGI+CGI plugin</a></li>
+      </ul>
+    </li>
+    <li><a href="#编写-cgi-应用">编写 CGI 应用</a>
+      <ul>
+        <li><a href="#使用-c-创建-cgi-应用">使用 C 创建 CGI 应用</a></li>
+        <li><a href="#使用-bash-创建-cgi-应用">使用 Bash 创建 CGI 应用</a></li>
+      </ul>
+    </li>
+    <li><a href="#启动-uwsgi">启动 uWSGI</a>
+      <ul>
+        <li><a href="#验证访问">验证访问</a></li>
+      </ul>
+    </li>
+    <li><a href="#易踩坑问题">易踩坑问题</a>
+      <ul>
+        <li></li>
+        <li><a href="#未找到标识符-0">未找到标识符 0</a></li>
+        <li><a href="#未找到-python-应用">未找到 Python 应用</a></li>
+        <li><a href="#找不到-cgi-插件">找不到 CGI 插件</a></li>
+      </ul>
+    </li>
+    <li><a href="#资源">资源</a></li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content"><h2 id="概况">概况</h2>
+<p>uWSGI 提供了一个 cgi 插件，可以让你通过 uWSGI 来运行传统的 CGI 脚本（虽然现在一般不会有人这样做）。</p>
+<p>⚠️ 注意事项</p>
+<ul>
+<li>uWSGI 的 CGI 插件性能一般，并不适合高并发或生产环境，只适合兼容旧系统或做一些调试。</li>
+<li>它只是提供了一个兼容层，内部仍是 fork+exec 来执行 CGI 脚本，性能开销与传统 CGI 接近。</li>
+<li>uWSGI 更多的是用于运行 WSGI 应用，如 Flask、Django，而不是传统 CGI。</li>
+</ul>
+<h2 id="安装-uwsgi">安装 uWSGI</h2>
+<h3 id="编译安装-uwsgicgi-plugin">编译安装 uWSGI+CGI plugin</h3>
+<p>uWSGI 默认不支持 CGI 应用。要支持 CGI，则需要安装其 CGI plugin。通过以下命令编译 uWSGI 及其 CGI 补丁：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">git clone git@github.com:unbit/uwsgi.git -b uwsgi-2.0 --depth<span class="o">=</span><span class="m">1</span>
+</span></span><span class="line"><span class="cl"><span class="nb">cd</span> uwsgi
+</span></span><span class="line"><span class="cl">make <span class="nv">PROFILE</span><span class="o">=</span>cgi
+</span></span><span class="line"><span class="cl">python uwsgiconfig.py --plugin plugins/cgi</span></span></code></pre></div></div>
+<p>编译完成后，通过以下命令验证 uWSGI 的可用性：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">$ ls ./cgi_plugin.so
+</span></span><span class="line"><span class="cl">./cgi_plugin.so
+</span></span><span class="line"><span class="cl">$ ./uwsgi --plugin cgi --plugins-list 2&gt;<span class="p">&amp;</span><span class="m">1</span> <span class="p">|</span> grep cgi
+</span></span><span class="line"><span class="cl">9: cgi</span></span></code></pre></div></div>
+<p>如上所示，uWSGI 以及其 cgi 插件已经就绪。</p>
+<h2 id="编写-cgi-应用">编写 CGI 应用</h2>
+<p>CGI 应用说白了就是一个可执行的程序，启动后能够输出 HTTP 响应内容就好了。下面是使用 C 和 BASH 实现的 CGI 应用。</p>
+<h3 id="使用-c-创建-cgi-应用">使用 C 创建 CGI 应用</h3>
+<p>创建 <code>hello.c</code>：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-c">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-c" data-lang="c"><span class="line"><span class="cl"><span class="cp">#include</span> <span class="cpf">&lt;stdio.h&gt;</span><span class="cp">
+</span></span></span><span class="line"><span class="cl"><span class="cp"></span>
+</span></span><span class="line"><span class="cl"><span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl"><span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="nf">printf</span><span class="p">(</span><span class="s">&#34;Content-type: text/plain</span><span class="se">\n\n</span><span class="s">&#34;</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="nf">printf</span><span class="p">(</span><span class="s">&#34;Hello, CGI world!</span><span class="se">\n</span><span class="s">&#34;</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span></span></span></code></pre></div></div>
+<p>将其编译为 cgi 应用，编译后尝试执行，可以输出内容：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">$ gcc hello.c -o apps/hello.cgi 
+</span></span><span class="line"><span class="cl">$ ./apps/hello.cgi 
+</span></span><span class="line"><span class="cl">Content-type: text/plain
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Hello, CGI world!</span></span></code></pre></div></div>
+<h3 id="使用-bash-创建-cgi-应用">使用 Bash 创建 CGI 应用</h3>
+<p>编写 <code>bash.cgi</code></p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-bash">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-bash" data-lang="bash"><span class="line"><span class="cl"><span class="cp">#!/bin/bash
+</span></span></span><span class="line"><span class="cl"><span class="cp"></span>
+</span></span><span class="line"><span class="cl"><span class="nb">echo</span> <span class="s2">&#34;Content-Type: text/plain&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nb">echo</span> <span class="s2">&#34;&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nb">echo</span> <span class="s2">&#34;Hello, CGI Bash Script!&#34;</span></span></span></code></pre></div></div>
+<p>创建后给它赋予执行权限，并尝试执行，可以输出内容：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">$ chmod +x apps/bash.cgi 
+</span></span><span class="line"><span class="cl">$ ./apps/bash.cgi 
+</span></span><span class="line"><span class="cl">Content-Type: text/plain
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Hello, CGI Bash Script!</span></span></code></pre></div></div>
+<h2 id="启动-uwsgi">启动 uWSGI</h2>
+<p>通过以下命令启动 uWSGI 应用：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">./uwsgi --plugin cgi --cgi ../uwsgi_simple_app/apps/ --http-socket :9000 --http-socket-modifier1 <span class="m">9</span></span></span></code></pre></div></div>
+<p>参数说明：</p>
+<table>
+  <thead>
+      <tr>
+          <th>参数</th>
+          <th>说明</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>&ndash;plugin cgi</td>
+          <td>加载 cgi plugin</td>
+      </tr>
+      <tr>
+          <td>&ndash;cgi ../uwsgi_simple_app/apps/</td>
+          <td>指定 cgi 应用所在的路径</td>
+      </tr>
+      <tr>
+          <td>&ndash;http-socket :9000</td>
+          <td>使用 HTTP 协议，绑定到 9000 端口</td>
+      </tr>
+      <tr>
+          <td>&ndash;http-socket-modifier1 9</td>
+          <td>使用 CGI 补丁处理 HTTP 协议的请求。<!-- raw HTML omitted --><!-- raw HTML omitted -->其中 9 是 CGI 的标识，可以用如下命令看到：<!-- raw HTML omitted --><code>./uwsgi --plugin cgi --plugins-list 2&gt;&amp;1 | grep cgi</code></td>
+      </tr>
+  </tbody>
+</table>
+<h3 id="验证访问">验证访问</h3>
+<p>uWSGI 启动后，可以通过 curl 或浏览器访问相应的 url 以访问应用。下面以 curl 为例：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">$ curl http://localhost:9000/hello.cgi
+</span></span><span class="line"><span class="cl">Hello, CGI world!
+</span></span><span class="line"><span class="cl">$ curl http://localhost:9000/bash.cgi
+</span></span><span class="line"><span class="cl">Hello, CGI Bash Script!</span></span></code></pre></div></div>
+<h2 id="易踩坑问题">易踩坑问题</h2>
+<h4 id="未加载应用">未加载应用</h4>
+<p>如果启动日志中输出以下内容：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-log">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><pre tabindex="0"><code class="language-log" data-lang="log">*** no app loaded. GAME OVER ***</code></pre></div>
+<p>这是因为 CGI 应用是动态加载的，所以会显示没有加载应用，上面的日志是正常的。</p>
+<p>但是如果启动日志中输出以下内容</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-log">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><pre tabindex="0"><code class="language-log" data-lang="log">*** no app loaded. GAME OVER ***</code></pre></div>
+<p>则需要在启动参数中加入 <code>--need-app=false</code> (或删除 <code>--need-app=true</code>，如果你加了的话)。</p>
+<h3 id="未找到标识符-0">未找到标识符 0</h3>
+<p>出现该问题时，启动日志中输出以下内容：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-log">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><pre tabindex="0"><code class="language-log" data-lang="log">-- unavailable modifier requested: 0 --</code></pre></div>
+<p>且 curl 或浏览器无法访问 uwsgi 绑定的服务器地址。这是因为 uwsgi 默认是以 Python 插件（标识符为 0）处理的，如果你的 uWSGI 并没有编译这个插件，则会报这个错误。</p>
+<p>解决方法：</p>
+<p>在我们的应用场景中（使用 CGI 插件处理 HTTP 请求），是完全不用 Python 插件的。因此，当出现该问题的时候，你只需要在启动命令加上参数 <code>--http-socket-modifier1 9</code>，要求 uWSGI 以 CGI 插件（标识符为 9）处理 http-socket 请求就好了。</p>
+<blockquote>
+<p>如果你不是通过 <code>--http-socket</code> 参数的方式绑定监听地址，则使用 <code>./uwsgi --help | grep modifier1</code> 查看并找到符合你需求的参数。</p></blockquote>
+<p>但是，如果你确实是想要以 Python 插件启动应用时遇到了这个问题，则是因为你的 uWSGI 并没有集成 Python 插件，使用以下命令重新编译 uWSGI 以解决问题：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">make clean
+</span></span><span class="line"><span class="cl">make <span class="nv">PROFILE</span><span class="o">=</span>default</span></span></code></pre></div></div>
+<h3 id="未找到-python-应用">未找到 Python 应用</h3>
+<p>出现该问题时，启动日志中输出以下内容：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-log">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><pre tabindex="0"><code class="language-log" data-lang="log">--- no python application found, check your startup logs for errors ---</code></pre></div>
+<p>这种情况是因为你的 uWSGI 中已经集成了 Python 插件，当 uWSGI 启动时会默认去查找是否有 Python web 应用（很明显在我们这篇文档所述的环境里是找不到的），因此会提示此错误。</p>
+<p>这个问题出现的原因其实跟上个问题是一样的，错误信息仅仅取决于你的 uWSG 是否集成了 Python 插件。要解决这个问题，我们需要添加一个参数来切换默认的处理应用：<code>--http-socket-modifier1 9</code>（同上个问题的解决方法）。</p>
+<h3 id="找不到-cgi-插件">找不到 CGI 插件</h3>
+<p>出现该问题时，启动日志中输出以下内容：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-log">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><pre tabindex="0"><code class="language-log" data-lang="log">open(&#34;./cgi_plugin.so&#34;): No such file or directory [core/utils.c line 3709]
+!!! UNABLE to load uWSGI plugin: ./cgi_plugin.so: cannot open shared object file: No such file or directory !!!</code></pre></div>
+<p>这是因为你没有编译 CGI 插件。使用以下命令编译插件以解决问题：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">python uwsgiconfig.py --plugin plugins/cgi</span></span></code></pre></div></div>
+<h2 id="资源">资源</h2>
+<ol>
+<li>上文中所有提及的源码及其验证脚本打包上传到了 <a href="https://github.com/focksor/simple_uwsgi_cgi_apps" target="_blank" rel="noopener noreffer ">Github</a> 上，希望对你有帮助。</li>
+<li>uWSGI CGI 官方文档：<a href="https://uwsgi-docs.readthedocs.io/en/latest/CGI.html" target="_blank" rel="noopener noreffer ">Running CGI scripts on uWSGI — uWSGI 2.0 documentation</a></li>
+</ol>
+</div><div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>Updated on 2025-05-31</span>
+            </div></div>
+        <div class="post-info-line">
+            <div class="post-info-md"><span>
+                            <a class="link-to-markdown" href="/posts/uwsgi&#43;cgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5/index.md" target="_blank">Read Markdown</a>
+                        </span></div>
+            <div class="post-info-share">
+                <span><a href="javascript:void(0);" title="Share on X" data-sharer="x" data-url="https://focksor.github.io/posts/uwsgi&#43;cgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5/" data-title="uWSGI&#43;CGI 最简实践"><i class="fab fa-x-twitter fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="Share on Threads" data-sharer="threads" data-url="https://focksor.github.io/posts/uwsgi&#43;cgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5/" data-title="uWSGI&#43;CGI 最简实践"><i class="fab fa-threads fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="Share on Facebook" data-sharer="facebook" data-url="https://focksor.github.io/posts/uwsgi&#43;cgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5/"><i class="fab fa-facebook-square fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="Share on Hacker News" data-sharer="hackernews" data-url="https://focksor.github.io/posts/uwsgi&#43;cgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5/" data-title="uWSGI&#43;CGI 最简实践"><i class="fab fa-hacker-news fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="Share on Line" data-sharer="line" data-url="https://focksor.github.io/posts/uwsgi&#43;cgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5/" data-title="uWSGI&#43;CGI 最简实践"><i data-svg-src="https://cdn.jsdelivr.net/npm/simple-icons@14.9.0/icons/line.svg" aria-hidden="true"></i></a><a href="javascript:void(0);" title="Share on 微博" data-sharer="weibo" data-url="https://focksor.github.io/posts/uwsgi&#43;cgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5/" data-title="uWSGI&#43;CGI 最简实践"><i class="fab fa-weibo fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="Share on Diaspora" data-sharer="diaspora" data-url="https://focksor.github.io/posts/uwsgi&#43;cgi-%E6%9C%80%E7%AE%80%E5%AE%9E%E8%B7%B5/" data-title="uWSGI&#43;CGI 最简实践" data-description=""><i class="fab fa-diaspora fa-fw" aria-hidden="true"></i></a><a href="https://t.me/share/url?url=https%3a%2f%2ffocksor.github.io%2fposts%2fuwsgi%2bcgi-%25E6%259C%2580%25E7%25AE%2580%25E5%25AE%259E%25E8%25B7%25B5%2f&amp;text=uWSGI%2bCGI%20%e6%9c%80%e7%ae%80%e5%ae%9e%e8%b7%b5" target="_blank" title="Share on Telegram"><i class="fab fa-telegram fa-fw" aria-hidden="true"></i></a></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"></section>
+        <section>
+            <span><a href="javascript:void(0);" onclick="window.history.back();">Back</a></span>&nbsp;|&nbsp;<span><a href="/">Home</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav"><a href="/posts/hello_world/" class="prev" rel="prev" title="Hello World!"><i class="fas fa-angle-left fa-fw" aria-hidden="true"></i>Hello World!</a></div>
+</div>
+<div id="comments"><div id="gitalk" class="comment"></div><noscript>
+                Please enable JavaScript to view the comments powered by <a href="https://github.com/gitalk/gitalk">Gitalk</a>.
+            </noscript></div></article></div>
+            </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">Powered by <a href="https://gohugo.io/" target="_blank" rel="noopener noreffer" title="Hugo 0.145.0">Hugo</a> | Theme - <a href="https://github.com/dillonzq/LoveIt" target="_blank" rel="noopener noreffer" title="LoveIt 0.3.1-DEV"><i class="far fa-kiss-wink-heart fa-fw" aria-hidden="true"></i> LoveIt</a>
+                </div><div class="footer-line" itemscope itemtype="http://schema.org/CreativeWork"><i class="far fa-copyright fa-fw" aria-hidden="true"></i><span itemprop="copyrightYear">2025</span><span class="author" itemprop="copyrightHolder">&nbsp;<a href="https://github.com/focksor" target="_blank">focksor</a></span></div>
+    
+        
+        <script async src=" //busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js "></script>
+    
+
+    
+        
+            <section>
+                
+                    <span id="busuanzi_container_value_site_pv"><i class="far fa-eye fa-fw"></i>
+                        
+                        <span id="busuanzi_value_site_pv"></span>
+                    </span>
+                
+
+                
+                    &nbsp;|&nbsp;              
+                
+
+                
+                    <span id="busuanzi_container_value_site_uv"><i class="fa fa-user"></i>
+                        
+                        <span id="busuanzi_value_site_uv"></span>
+                    </span>
+                
+            </section>
+        
+
+        
+        
+    
+
+</div>
+    </footer></div>
+
+        <div id="fixed-buttons"><a href="#" id="back-to-top" class="fixed-button" title="Back to Top">
+                <i class="fas fa-arrow-up fa-fw" aria-hidden="true"></i>
+            </a>
+        </div>
+
+        <div id="fixed-buttons-hidden"><a href="#" id="view-comments" class="fixed-button" title="View Comments">
+                <i class="fas fa-comment fa-fw" aria-hidden="true"></i>
+            </a>
+        </div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gitalk@1.7.2/dist/gitalk.min.css"><script src="https://cdn.jsdelivr.net/npm/gitalk@1.7.2/dist/gitalk.min.js"></script><script src="https://cdn.jsdelivr.net/npm/autocomplete.js@0.38.1/dist/autocomplete.min.js"></script><script src="https://cdn.jsdelivr.net/npm/algoliasearch@5.20.2/dist/lite/builds/browser.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/lazysizes@5.3.2/lazysizes.min.js"></script><script src="https://cdn.jsdelivr.net/npm/clipboard@2.0.11/dist/clipboard.min.js"></script><script src="https://cdn.jsdelivr.net/npm/sharer.js@0.5.2/sharer.min.js"></script><script>window.config={"comment":{"gitalk":{"admin":["focksor"],"clientID":"Ov23liyZs5vJL7hXYWt1","clientSecret":"51bec3246f37ba58c52532371c5de0ef10a62447","id":"2025-05-31T15:12:41+08:00","owner":"focksor","repo":"focksor.github.io","title":"uWSGI+CGI 最简实践"}},"search":{"algoliaAppID":"AQWVSYVPER","algoliaIndex":"focksor's blog","algoliaSearchKey":"fc7664b3c32cda6a4b6ef3af7ecb2c51","highlightTag":"em","maxResultLength":10,"noResultsFound":"No results found","snippetLength":30,"type":"algolia"}};</script><script src="/js/theme.min.js"></script><script>
+            var doNotTrack = false;
+            if ( false ) {
+                var dnt = (navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack);
+                var doNotTrack = (dnt == "1" || dnt == "yes");
+            }
+            if (!doNotTrack) {
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+                gtag('config', 'G-HTSXK42TV5');
+            }
+        </script><script src="https://www.googletagmanager.com/gtag/js?id=G-HTSXK42TV5" async></script></body>
+</html>
