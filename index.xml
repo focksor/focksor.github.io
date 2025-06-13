@@ -4,7 +4,7 @@
         <link>https://focksor.github.io/</link>
         <description>This is focksor&#39;s blog</description>
         <generator>Hugo -- gohugo.io</generator><language>en-us</language><managingEditor>focksor@outlook.com (focksor)</managingEditor>
-            <webMaster>focksor@outlook.com (focksor)</webMaster><lastBuildDate>Tue, 03 Jun 2025 08:30:00 &#43;0800</lastBuildDate>
+            <webMaster>focksor@outlook.com (focksor)</webMaster><lastBuildDate>Fri, 13 Jun 2025 08:00:00 &#43;0800</lastBuildDate>
             <atom:link href="https://focksor.github.io/index.xml" rel="self" type="application/rss+xml" />
         <item>
     <title>uWSGI&#43;Django 最简实践</title>
