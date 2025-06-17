@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en-us">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="robots" content="noodp" />
+        <title>Linux 内存统计方法差异分析 - focksor&#39;s blog</title><meta name="Description" content="This is focksor&#39;s blog"><meta property="og:url" content="https://focksor.github.io/posts/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90/">
+  <meta property="og:site_name" content="focksor&#39;s blog">
+  <meta property="og:title" content="Linux 内存统计方法差异分析">
+  <meta property="og:description" content="概述 本文将探索 Linux 下不同内存统计方法的差异，以及描述相应方法的适用场景。
+你可能想要知道 top, ps, systemctl status, smem 等工具或命令显示的内存用量分别有什么含义，其显示的数字又为什么各有差异，本文将进行深入分析，带你了解其中的奥妙，并让你清楚应该在什么场景下应该使用哪个指标。
+背景 笔者在分析 Linux 机器上的内存使用情况时，发现一个奇怪的现象：systemctl 和 ps 的内存（RSS）数据对不上，两者有时候会无法形成逻辑上的关联关系。
+例如，在分析 Nginx 应用的内存使用情况时，笔者观察到了如下的数据：
+# uname -a Linux firewall 5.10.204-g39484bf51955 #1 SMP Tue Jun 10 01:12:29 CST 2025 x86_64 GNU/Linux # systemctl status nginx ● nginx.service - A high performance web server and a reverse proxy server Loaded: loaded (/usr/lib/systemd/system/nginx.service; enabled; vendor preset: enabled) Active: active (running) since Tue 2025-06-10 09:11:03 CST; 2h 31min ago Process: 3954 ExecReload=/usr/sbin/nginx -g daemon on; master_process on; -s reload (code=exited, status=0/SUCCESS) Main PID: 665 (nginx) Tasks: 3 (limit: 5617) Memory: 9.9M CGroup: /system.slice/nginx.service ├─ 665 nginx: master process /usr/sbin/nginx -g daemon on; master_process on; └─3958 nginx: worker process # ps aux | head -1 &amp;&amp; ps aux | grep nginx USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND root 665 0.0 0.0 113068 8820 ? Ss 09:11 0:00 nginx: master process /usr/sbin/nginx -g daemon on; master_process on; www-data 3958 0.0 0.0 182940 12832 ? Sl 09:12 0:00 nginx: worker process 如上我们可以从 systemctl status nginx 中看到，nginx 启动了，分别是一个 master 和一个 worker，两者的内存一共占用了 9.9M。而当我们使用 ps 指令去查看时，发现两个进程的 RSS 内存使用量分别是 8820 和 12832，即总共用了 8820&#43;12832=21652kB=21.14MB。明显大于 systemctl status 显示的内存用量。">
+  <meta property="og:locale" content="en_us">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2025-06-18T00:10:53+08:00">
+    <meta property="article:modified_time" content="2025-06-18T00:10:53+08:00">
+    <meta property="article:tag" content="Programming">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Linux 内存统计方法差异分析">
+  <meta name="twitter:description" content="概述 本文将探索 Linux 下不同内存统计方法的差异，以及描述相应方法的适用场景。
+你可能想要知道 top, ps, systemctl status, smem 等工具或命令显示的内存用量分别有什么含义，其显示的数字又为什么各有差异，本文将进行深入分析，带你了解其中的奥妙，并让你清楚应该在什么场景下应该使用哪个指标。
+背景 笔者在分析 Linux 机器上的内存使用情况时，发现一个奇怪的现象：systemctl 和 ps 的内存（RSS）数据对不上，两者有时候会无法形成逻辑上的关联关系。
+例如，在分析 Nginx 应用的内存使用情况时，笔者观察到了如下的数据：
+# uname -a Linux firewall 5.10.204-g39484bf51955 #1 SMP Tue Jun 10 01:12:29 CST 2025 x86_64 GNU/Linux # systemctl status nginx ● nginx.service - A high performance web server and a reverse proxy server Loaded: loaded (/usr/lib/systemd/system/nginx.service; enabled; vendor preset: enabled) Active: active (running) since Tue 2025-06-10 09:11:03 CST; 2h 31min ago Process: 3954 ExecReload=/usr/sbin/nginx -g daemon on; master_process on; -s reload (code=exited, status=0/SUCCESS) Main PID: 665 (nginx) Tasks: 3 (limit: 5617) Memory: 9.9M CGroup: /system.slice/nginx.service ├─ 665 nginx: master process /usr/sbin/nginx -g daemon on; master_process on; └─3958 nginx: worker process # ps aux | head -1 &amp;&amp; ps aux | grep nginx USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND root 665 0.0 0.0 113068 8820 ? Ss 09:11 0:00 nginx: master process /usr/sbin/nginx -g daemon on; master_process on; www-data 3958 0.0 0.0 182940 12832 ? Sl 09:12 0:00 nginx: worker process 如上我们可以从 systemctl status nginx 中看到，nginx 启动了，分别是一个 master 和一个 worker，两者的内存一共占用了 9.9M。而当我们使用 ps 指令去查看时，发现两个进程的 RSS 内存使用量分别是 8820 和 12832，即总共用了 8820&#43;12832=21652kB=21.14MB。明显大于 systemctl status 显示的内存用量。">
+<meta name="application-name" content="focksor&#39;s blog">
+<meta name="apple-mobile-web-app-title" content="focksor&#39;s blog">
+<meta name="referrer" content="no-referrer" /><meta name="theme-color" content="#ffffff"><meta name="msapplication-TileColor" content="#da532c"><link rel="icon" href="https://avatars.githubusercontent.com/u/29502168?v=4"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5"><link rel="manifest" href="/site.webmanifest"><link rel="canonical" href="https://focksor.github.io/posts/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90/" /><link rel="prev" href="https://focksor.github.io/posts/python-%E5%88%A0%E9%99%A4%E5%B7%B2%E5%AF%BC%E5%85%A5%E7%9A%84%E6%A8%A1%E5%9D%97/" /><link rel="stylesheet" href="/css/style.min.css"><link rel="preload" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+        <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css"></noscript><link rel="preload" href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+        <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css"></noscript><meta name="google-site-verification" content="0yFS9XlKF8SH9SD_fNbBIkMjPIDri822_I_Irr93nPI" /><script type="application/ld+json">
+    {
+        "@context": "http://schema.org",
+        "@type": "BlogPosting",
+        "headline": "Linux 内存统计方法差异分析",
+        "inLanguage": "en-us",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "https:\/\/focksor.github.io\/posts\/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90\/"
+        },"genre": "posts","keywords": "Programming","wordcount":  1609 ,
+        "url": "https:\/\/focksor.github.io\/posts\/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90\/","datePublished": "2025-06-18T00:10:53+08:00","dateModified": "2025-06-18T00:10:53+08:00","publisher": {
+            "@type": "Organization",
+            "name": ""},"author": {
+                "@type": "Person",
+                "name": "focksor"
+            },"description": ""
+    }
+    </script></head>
+    <body data-header-desktop="fixed" data-header-mobile="auto"><script>(window.localStorage && localStorage.getItem('theme') ? localStorage.getItem('theme') === 'dark' : ('auto' === 'auto' ? window.matchMedia('(prefers-color-scheme: dark)').matches : 'auto' === 'dark')) && document.body.setAttribute('theme', 'dark');</script>
+
+        <div id="mask"></div><div class="wrapper"><header class="desktop" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="focksor&#39;s blog">focksor&#39;s blog</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item" href="/posts/"> Posts </a><a class="menu-item" href="/tags/"> Tags </a><a class="menu-item" href="/categories/"> Categories </a><a class="menu-item" href="https://github.com/focksor/focksor.github.io" title="GitHub" rel="noopener noreffer" target="_blank"><i class='fab fa-github fa-fw' aria-hidden='true'></i>  </a><span class="menu-item delimiter"></span><span class="menu-item search" id="search-desktop">
+                        <input type="text" placeholder="Search titles or contents..." id="search-input-desktop">
+                        <a href="javascript:void(0);" class="search-button search-toggle" id="search-toggle-desktop" title="Search">
+                            <i class="fas fa-search fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <a href="javascript:void(0);" class="search-button search-clear" id="search-clear-desktop" title="Clear">
+                            <i class="fas fa-times-circle fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <span class="search-button search-loading" id="search-loading-desktop">
+                            <i class="fas fa-spinner fa-fw fa-spin" aria-hidden="true"></i>
+                        </span>
+                    </span><a href="javascript:void(0);" class="menu-item theme-switch" title="Switch Theme">
+                    <i class="fas fa-adjust fa-fw" aria-hidden="true"></i>
+                </a></div>
+        </div>
+    </div>
+</header><header class="mobile" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="focksor&#39;s blog">focksor&#39;s blog</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><div class="search-wrapper">
+                    <div class="search mobile" id="search-mobile">
+                        <input type="text" placeholder="Search titles or contents..." id="search-input-mobile">
+                        <a href="javascript:void(0);" class="search-button search-toggle" id="search-toggle-mobile" title="Search">
+                            <i class="fas fa-search fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <a href="javascript:void(0);" class="search-button search-clear" id="search-clear-mobile" title="Clear">
+                            <i class="fas fa-times-circle fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <span class="search-button search-loading" id="search-loading-mobile">
+                            <i class="fas fa-spinner fa-fw fa-spin" aria-hidden="true"></i>
+                        </span>
+                    </div>
+                    <a href="javascript:void(0);" class="search-cancel" id="search-cancel-mobile">
+                        Cancel
+                    </a>
+                </div><a class="menu-item" href="/posts/" title="">Posts</a><a class="menu-item" href="/tags/" title="">Tags</a><a class="menu-item" href="/categories/" title="">Categories</a><a class="menu-item" href="https://github.com/focksor/focksor.github.io" title="GitHub" rel="noopener noreffer" target="_blank"><i class='fab fa-github fa-fw' aria-hidden='true'></i></a><a href="javascript:void(0);" class="menu-item theme-switch" title="Switch Theme">
+                <i class="fas fa-adjust fa-fw" aria-hidden="true"></i>
+            </a></div>
+    </div>
+</header><div class="search-dropdown desktop">
+        <div id="search-dropdown-desktop"></div>
+    </div>
+    <div class="search-dropdown mobile">
+        <div id="search-dropdown-mobile"></div>
+    </div><main class="main">
+                <div class="container"><div class="toc" id="toc-auto">
+            <h2 class="toc-title">Contents</h2>
+            <div class="toc-content always-active" id="toc-content-auto"></div>
+        </div><article class="page single"><h1 class="single-title animate__animated animate__flipInX">Linux 内存统计方法差异分析</h1><div class="post-meta">
+            <div class="post-meta-line"><span class="post-author"><a href="https://github.com/focksor" title="Author" target="_blank" rel="noopener noreffer author" class="author"><i class="fas fa-user-circle fa-fw" aria-hidden="true"></i>focksor</a></span></div>
+            <div class="post-meta-line"><i class="far fa-calendar-alt fa-fw" aria-hidden="true"></i>&nbsp;<time datetime="2025-06-18">2025-06-18</time>&nbsp;<i class="fas fa-pencil-alt fa-fw" aria-hidden="true"></i>&nbsp;1609 words&nbsp;
+                <i class="far fa-clock fa-fw" aria-hidden="true"></i>&nbsp;8 minutes&nbsp;
+    
+
+    
+        
+
+        
+        
+            <span id="busuanzi_container_value_page_pv"><i class="far fa-eye fa-fw"></i>
+                
+                <span id="busuanzi_value_page_pv"></span>&nbsp;views</span>
+        
+    
+
+</div>
+        </div><div class="details toc" id="toc-static"  data-kept="">
+                <div class="details-summary toc-title">
+                    <span>Contents</span>
+                    <span><i class="details-icon fas fa-angle-right" aria-hidden="true"></i></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#概述">概述</a></li>
+    <li><a href="#背景">背景</a></li>
+    <li><a href="#理论分析">理论分析</a>
+      <ul>
+        <li><a href="#命令数据来源">命令数据来源</a></li>
+        <li><a href="#内核数据来源">内核数据来源</a></li>
+      </ul>
+    </li>
+    <li><a href="#实践分析">实践分析</a>
+      <ul>
+        <li><a href="#systemctl-status-小于-pstop">systemctl status 小于 ps/top</a></li>
+        <li><a href="#systemctl-status-大于-pstop">systemctl status 大于 ps/top</a></li>
+        <li><a href="#systemctl-status-等于-pstop">systemctl status 等于 ps/top</a></li>
+      </ul>
+    </li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#资源">资源</a></li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content"><h2 id="概述">概述</h2>
+<p>本文将探索 Linux 下不同内存统计方法的差异，以及描述相应方法的适用场景。</p>
+<p>你可能想要知道 top, ps, systemctl status, smem 等工具或命令显示的内存用量分别有什么含义，其显示的数字又为什么各有差异，本文将进行深入分析，带你了解其中的奥妙，并让你清楚应该在什么场景下应该使用哪个指标。</p>
+<h2 id="背景">背景</h2>
+<p>笔者在分析 Linux 机器上的内存使用情况时，发现一个奇怪的现象：<code>systemctl</code> 和 <code>ps</code> 的内存（RSS）数据对不上，两者有时候会无法形成逻辑上的关联关系。</p>
+<p>例如，在分析 Nginx 应用的内存使用情况时，笔者观察到了如下的数据：</p>
+<div class="code-block code-line-numbers" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># uname -a</span>
+</span></span><span class="line"><span class="cl">Linux firewall 5.10.204-g39484bf51955 <span class="c1">#1 SMP Tue Jun 10 01:12:29 CST 2025 x86_64 GNU/Linux</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># systemctl status nginx</span>
+</span></span><span class="line"><span class="cl">● nginx.service - A high performance web server and a reverse proxy server
+</span></span><span class="line"><span class="cl">     Loaded: loaded <span class="o">(</span>/usr/lib/systemd/system/nginx.service<span class="p">;</span> enabled<span class="p">;</span> vendor preset: enabled<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Active: active <span class="o">(</span>running<span class="o">)</span> since Tue 2025-06-10 09:11:03 CST<span class="p">;</span> 2h 31min ago
+</span></span><span class="line"><span class="cl">    Process: <span class="m">3954</span> <span class="nv">ExecReload</span><span class="o">=</span>/usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span> -s reload <span class="o">(</span><span class="nv">code</span><span class="o">=</span>exited, <span class="nv">status</span><span class="o">=</span>0/SUCCESS<span class="o">)</span>
+</span></span><span class="line"><span class="cl">   Main PID: <span class="m">665</span> <span class="o">(</span>nginx<span class="o">)</span>
+</span></span><span class="line"><span class="cl">      Tasks: <span class="m">3</span> <span class="o">(</span>limit: 5617<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Memory: 9.9M
+</span></span><span class="line"><span class="cl">     CGroup: /system.slice/nginx.service
+</span></span><span class="line"><span class="cl">             ├─ <span class="m">665</span> nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl">             └─3958 nginx: worker process
+</span></span><span class="line"><span class="cl"><span class="c1"># ps aux | head -1 &amp;&amp; ps aux | grep nginx</span>
+</span></span><span class="line"><span class="cl">USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+</span></span><span class="line"><span class="cl">root         <span class="m">665</span>  0.0  0.0 <span class="m">113068</span>  <span class="m">8820</span> ?        Ss   09:11   0:00 nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl">www-data    <span class="m">3958</span>  0.0  0.0 <span class="m">182940</span> <span class="m">12832</span> ?        Sl   09:12   0:00 nginx: worker process</span></span></code></pre></div></div>
+<p>如上我们可以从 <code>systemctl status nginx</code> 中看到，nginx 启动了，分别是一个 master 和一个 worker，两者的内存一共占用了 9.9M。而当我们使用 ps 指令去查看时，发现两个进程的 RSS 内存使用量分别是 8820 和 12832，即总共用了 8820+12832=21652kB=21.14MB。明显大于 <code>systemctl status</code> 显示的内存用量。</p>
+<p>那有人就要说了，nginx 的 worker 很明显是从 master 中 fork 出来的，所以两个进程的内存有一部分是共享的（shared and COW），所以会比两个进程单独显示的用量总数大，很合理吧？</p>
+<p>一开始笔者也是这么认为的，然而随后便发现这个说法经不起推敲：worker 的总内存用量 12832=12.5MB，大于 <code>systemctl status</code> 中显示的内存总量  9.9M。就算 worker 共享了 master 的全部内存，那也不能比总量大吧？</p>
+<p>暂时没想明白这是怎么算出来的，笔者随后又去看了另一台机器（nginx 配置相同但机器硬件和系统不同），结果看到了更离谱的数据：</p>
+<div class="code-block code-line-numbers" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># uname -a</span>
+</span></span><span class="line"><span class="cl">Linux firewall 4.14.76-gd85b09009 <span class="c1">#1 SMP PREEMPT Wed May 28 16:22:58 CST 2025 aarch64 GNU/Linux</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># systemctl status nginx</span>
+</span></span><span class="line"><span class="cl">● nginx.service - A high performance web server and a reverse proxy server
+</span></span><span class="line"><span class="cl">     Loaded: loaded <span class="o">(</span>/usr/lib/systemd/system/nginx.service<span class="p">;</span> enabled<span class="p">;</span> vendor preset: enabled<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Active: active <span class="o">(</span>running<span class="o">)</span> <span class="o">(</span>thawing<span class="o">)</span> since Mon 2025-06-09 16:14:51 CST<span class="p">;</span> 19h ago
+</span></span><span class="line"><span class="cl">   Main PID: <span class="m">7401</span> <span class="o">(</span>nginx<span class="o">)</span>
+</span></span><span class="line"><span class="cl">      Tasks: <span class="m">3</span> <span class="o">(</span>limit: 4629<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Memory: 26.5M
+</span></span><span class="line"><span class="cl">     CGroup: /system.slice/nginx.service
+</span></span><span class="line"><span class="cl">             ├─7401 nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl">             └─7403 nginx: worker process
+</span></span><span class="line"><span class="cl"><span class="c1"># ps aux | head -1 &amp;&amp; ps aux | grep nginx</span>
+</span></span><span class="line"><span class="cl">USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+</span></span><span class="line"><span class="cl">root        <span class="m">7401</span>  0.0  0.0  <span class="m">43328</span>  <span class="m">2056</span> ?        Ss   Jun09   0:00 nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl">www-data    <span class="m">7403</span>  0.0  0.2 <span class="m">121796</span> <span class="m">11524</span> ?        Sl   Jun09   0:15 nginx: worker process</span></span></code></pre></div></div>
+<p>可以看到，同样是 nginx，其 master 和 worker 的 RSS 内存占用分别是 2056 和 11524，总量是 2056+11524=13580kB=13.26MB，甚至比 <code>systemctl status nginx</code> 上显示的 26.5M 更小？</p>
+<p>作为一个严谨的程序员，笔者想要找出其背后的原理，通过统一的理论同时解释上面两组数据——更重要的是，让我可以知道究竟哪个数据才能真实地表达对应应用程序的内存情况。</p>
+<h2 id="理论分析">理论分析</h2>
+<blockquote>
+<p>[!info]
+本文档分析过程基于 <a href="https://github.com/torvalds/linux/tree/v4.14" target="_blank" rel="noopener noreffer ">Linux kernel 4.14</a> 版本</p></blockquote>
+<h3 id="命令数据来源">命令数据来源</h3>
+<h4 id="ps-rss-数据来源">ps RSS 数据来源</h4>
+<p>阅读 <a href="https://gitlab.com/procps-ng/procps/-/tree/v3.3.15?ref_type=tags" target="_blank" rel="noopener noreffer ">源码</a>，不难看出 <code>ps</code> 指令的 RSS 内存用量直接读取自 <code>/proc/&lt;pid&gt;/status</code> 中的 <code>VmRSS</code> 字段。如下也可以看到两个数据是完全一样的：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># ps aux | head -1 &amp;&amp; ps aux | grep nginx</span>
+</span></span><span class="line"><span class="cl">USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+</span></span><span class="line"><span class="cl">root      <span class="m">129137</span>  0.0  0.0  <span class="m">43312</span>  <span class="m">2340</span> ?        Ss   Jun11   0:00 nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl">www-data  <span class="m">129139</span>  0.0  0.3 <span class="m">121700</span> <span class="m">12148</span> ?        Sl   Jun11   0:13 nginx: worker process
+</span></span><span class="line"><span class="cl"><span class="c1"># cat /proc/129137/status | grep VmRSS</span>
+</span></span><span class="line"><span class="cl">VmRSS:      <span class="m">2340</span> kB
+</span></span><span class="line"><span class="cl"><span class="c1"># cat /proc/129139/status | grep VmRSS</span>
+</span></span><span class="line"><span class="cl">VmRSS:     <span class="m">12148</span> kB</span></span></code></pre></div></div>
+<blockquote>
+<p>[!note]
+源码定位：<a href="https://gitlab.com/procps-ng/procps/-/blame/v3.3.15/ps/display.c?ref_type=tags#L673" target="_blank" rel="noopener noreffer ">main()</a> -&gt; <a href="https://gitlab.com/procps-ng/procps/-/blame/v3.3.15/ps/display.c?ref_type=tags#L375" target="_blank" rel="noopener noreffer ">simple_spew</a> -&gt; <a href="https://gitlab.com/procps-ng/procps/-/blame/v3.3.15/ps/output.c?ref_type=tags#L2054" target="_blank" rel="noopener noreffer ">show_one_proc</a> -&gt; <a href="https://gitlab.com/procps-ng/procps/-/blob/v3.3.15/ps/output.c?ref_type=tags#L1649" target="_blank" rel="noopener noreffer ">format_array</a> -&gt; <a href="https://gitlab.com/procps-ng/procps/-/blob/v3.3.15/ps/output.c?ref_type=tags#L990" target="_blank" rel="noopener noreffer ">pr_rss</a> -&gt; <a href="https://gitlab.com/procps-ng/procps/-/blame/v3.3.15/proc/readproc.c?ref_type=tags#L369" target="_blank" rel="noopener noreffer ">status2proc</a></p></blockquote>
+<h4 id="top-rss-数据来源">top RSS 数据来源</h4>
+<p>阅读 <a href="https://gitlab.com/procps-ng/procps/-/tree/v3.3.15?ref_type=tags" target="_blank" rel="noopener noreffer ">源码</a>，不难发现 <code>top</code> 指令的 <code>RES</code> 内存用量取自 <code>/proc/&lt;pid&gt;/statm</code> 并乘以每页大小。如下也可以看到两个数据是完全一样的：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># top -p 129137 -p 129139</span>
+</span></span><span class="line"><span class="cl">   PID USER      PR  NI    VIRT    RES  %CPU  %MEM     TIME+ S COMMAND
+</span></span><span class="line"><span class="cl"><span class="m">129137</span> root      <span class="m">20</span>   <span class="m">0</span>   <span class="m">43312</span>   <span class="m">2340</span>   0.0   0.1   0:00.00 S nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="m">129139</span> www-data  <span class="m">20</span>   <span class="m">0</span>  <span class="m">121700</span>  <span class="m">12148</span>   0.0   0.3   0:13.42 S  <span class="sb">`</span>- nginx: worker process
+</span></span><span class="line"><span class="cl"><span class="c1"># awk &#39;{print $2*4}&#39; /proc/129137/statm</span>
+</span></span><span class="line"><span class="cl"><span class="m">2340</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># awk &#39;{print $2*4}&#39; /proc/129139/statm</span>
+</span></span><span class="line"><span class="cl"><span class="m">12148</span></span></span></code></pre></div></div>
+<blockquote>
+<p>[!note]
+源码定位：<a href="https://gitlab.com/procps-ng/procps/-/blob/v3.3.15/top/top.c?ref_type=tags#L6134" target="_blank" rel="noopener noreffer ">main()</a> -&gt; <a href="https://gitlab.com/procps-ng/procps/-/blob/v3.3.15/top/top.c?ref_type=tags#L6088" target="_blank" rel="noopener noreffer ">frame_make</a> -&gt; <a href="https://gitlab.com/procps-ng/procps/-/blob/v3.3.15/top/top.c?ref_type=tags#L5995" target="_blank" rel="noopener noreffer ">window_show</a> -&gt; <a href="https://gitlab.com/procps-ng/procps/-/blob/v3.3.15/top/top.c?ref_type=tags#L5836" target="_blank" rel="noopener noreffer ">task_show</a> -&gt; <a href="https://gitlab.com/procps-ng/procps/-/blob/v3.3.15/proc/readproc.c?ref_type=tags#L655" target="_blank" rel="noopener noreffer ">statm2proc</a></p></blockquote>
+<h4 id="smem-rss-数据来源">smem RSS 数据来源</h4>
+<p>阅读 <a href="https://selenic.com/repo/smem/file/tip" target="_blank" rel="noopener noreffer ">源码</a>，可以看到 <code>smem</code> 指令的 <code>RSS</code> 内存用量取自 <code>/proc/&lt;pid&gt;/smaps</code>，是一个进程所有已映射内存区域的 RSS 总和（即也是 <code>/proc/&lt;pid&gt;/smaps_rollup</code> 中 <code>Rss</code> 字段的值）。如下也可以看到几个数据是完全一样的：</p>
+<div class="code-block code-line-numbers" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># smem -P nginx</span>
+</span></span><span class="line"><span class="cl">  PID User     Command                         Swap      USS      PSS      RSS
+</span></span><span class="line"><span class="cl"><span class="m">129137</span> root     nginx: master process /usr/        <span class="m">4</span>      <span class="m">480</span>     <span class="m">1175</span>     <span class="m">3144</span>
+</span></span><span class="line"><span class="cl"><span class="m">129139</span> www-data nginx: worker process              <span class="m">4</span>     <span class="m">6540</span>     <span class="m">7537</span>    <span class="m">12352</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># awk &#39;/^Rss:/ {rss += $2} END {print rss &#34; kB&#34;}&#39; /proc/129137/smaps</span>
+</span></span><span class="line"><span class="cl"><span class="m">3144</span> kB
+</span></span><span class="line"><span class="cl"><span class="c1"># grep Rss /proc/129137/smaps_rollup</span>
+</span></span><span class="line"><span class="cl">Rss:                <span class="m">3144</span> kB
+</span></span><span class="line"><span class="cl"><span class="c1"># awk &#39;/^Rss:/ {rss += $2} END {print rss &#34; kB&#34;}&#39; /proc/129139/smaps</span>
+</span></span><span class="line"><span class="cl"><span class="m">12352</span> kB
+</span></span><span class="line"><span class="cl"><span class="c1"># grep Rss /proc/129139/smaps_rollup</span>
+</span></span><span class="line"><span class="cl">Rss:               <span class="m">12352</span> kB</span></span></code></pre></div></div>
+<blockquote>
+<p>[!note]
+源码定位：
+<a href="https://selenic.com/repo/smem/file/98273ce331bb/smem#l290" target="_blank" rel="noopener noreffer ">showpids</a> -&gt; <a href="https://selenic.com/repo/smem/file/98273ce331bb/smem#l259" target="_blank" rel="noopener noreffer ">processtotals</a> -&gt; <a href="https://selenic.com/repo/smem/file/98273ce331bb/smem#l240" target="_blank" rel="noopener noreffer ">pidtotals</a> -&gt; <a href="https://selenic.com/repo/smem/file/98273ce331bb/smem#l160" target="_blank" rel="noopener noreffer ">pidmaps</a></p></blockquote>
+<h4 id="systemctl-status-rss-数据来源">systemctl status RSS 数据来源</h4>
+<p>阅读 <a href="https://github.com/systemd/systemd/tree/v246" target="_blank" rel="noopener noreffer ">源码</a>，可以看到 <code>systemctl status</code> 的 <code>Memory</code> 数据用量取自 <code>/sys/fs/cgroup/memory/&lt;unit.path&gt;/memory.usage_in_bytes</code> (cgroup v1)或 <code>/sys/fs/cgroup/memory/&lt;unit.path&gt;/memory.current</code>（cgroup v2） 。如下也可以看到两个数据是完全一样的：</p>
+<div class="code-block code-line-numbers" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># systemctl show nginx -p MemoryCurrent</span>
+</span></span><span class="line"><span class="cl"><span class="nv">MemoryCurrent</span><span class="o">=</span><span class="m">10371072</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># cat /sys/fs/cgroup/memory/system.slice/nginx.service/memory.usage_in_bytes</span>
+</span></span><span class="line"><span class="cl"><span class="m">10371072</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># awk &#39;{printf &#34;%.2f MiB\n&#34;, $1/1024/1024}&#39; /sys/fs/cgroup/memory/system.slice/nginx.service/memory.usage_in_bytes</span>
+</span></span><span class="line"><span class="cl">9.89 MiB
+</span></span><span class="line"><span class="cl"><span class="c1"># systemctl status nginx</span>
+</span></span><span class="line"><span class="cl">● nginx.service - A high performance web server and a reverse proxy server
+</span></span><span class="line"><span class="cl">     Loaded: loaded <span class="o">(</span>/usr/lib/systemd/system/nginx.service<span class="p">;</span> enabled<span class="p">;</span> vendor preset: enabled<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Active: active <span class="o">(</span>running<span class="o">)</span> <span class="o">(</span>thawing<span class="o">)</span> since Wed 2025-06-11 17:39:02 CST<span class="p">;</span> <span class="m">4</span> days ago
+</span></span><span class="line"><span class="cl">   Main PID: <span class="m">129137</span> <span class="o">(</span>nginx<span class="o">)</span>
+</span></span><span class="line"><span class="cl">      Tasks: <span class="m">3</span> <span class="o">(</span>limit: 4629<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Memory: 9.8M
+</span></span><span class="line"><span class="cl">     CGroup: /system.slice/nginx.service
+</span></span><span class="line"><span class="cl">             ├─129137 nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl">             └─129139 nginx: worker process</span></span></code></pre></div></div>
+<blockquote>
+<p>[!note]
+源码定位：<a href="https://github.com/systemd/systemd/blob/ae366f3acbc1a45504e9875099b17a7e1a221d03/src/systemctl/systemctl.c#L4457" target="_blank" rel="noopener noreffer ">print_status_info</a> -&gt; <a href="https://github.com/systemd/systemd/blob/ae366f3acbc1a45504e9875099b17a7e1a221d03/src/systemctl/systemctl.c#L5502" target="_blank" rel="noopener noreffer ">status_map</a> -&gt; <a href="https://github.com/systemd/systemd/blob/ae366f3acbc1a45504e9875099b17a7e1a221d03/src/core/dbus-unit.c#L1530" target="_blank" rel="noopener noreffer ">bus_unit_cgroup_vtable</a> -&gt; <a href="https://github.com/systemd/systemd/blob/ae366f3acbc1a45504e9875099b17a7e1a221d03/src/core/dbus-unit.c#L1082" target="_blank" rel="noopener noreffer ">property_get_current_memory</a> -&gt; <a href="https://github.com/systemd/systemd/blob/ae366f3acbc1a45504e9875099b17a7e1a221d03/src/core/cgroup.c#L3165" target="_blank" rel="noopener noreffer ">unit_get_memory_current</a> -&gt;cg_get_attribute_as_uint64</p></blockquote>
+<h3 id="内核数据来源">内核数据来源</h3>
+<p>在上个小节对各命令的数据来源分析中，我们可以看到每个命令的数据其实是来源于不同的文件，而这些文件是由 Linux 内核创建的虚拟文件，反映了程序的运行状态。下面是这些文件相应字段的定义：</p>
+<table>
+  <thead>
+      <tr>
+          <th>文件</th>
+          <th>字段</th>
+          <th>使用文件数据的命令</th>
+          <th>说明</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><code>/proc/&lt;pid&gt;/status</code></td>
+          <td>VmRSS</td>
+          <td>top</td>
+          <td>size of memory portions. It contains the three following parts (VmRSS = RssAnon + RssFile + RssShmem)<a href="https://docs.kernel.org/filesystems/proc.html#:~:text=size%20of%20memory%20portions.%20It%20contains%20the%20three%20following%20parts%20%28VmRSS%20%3D%20RssAnon%20%2B%20RssFile%20%2B%20RssShmem%29" target="_blank" rel="noopener noreffer "></a></td>
+      </tr>
+      <tr>
+          <td><code>/proc/&lt;pid&gt;/statm</code></td>
+          <td>resident</td>
+          <td>ps</td>
+          <td>(same as VmRSS in status)<a href="https://docs.kernel.org/filesystems/proc.html#:~:text=%28same%20as%20VmRSS%20in%20status%29" target="_blank" rel="noopener noreffer "></a></td>
+      </tr>
+      <tr>
+          <td><code>/proc/&lt;pid&gt;/smaps_rollup</code></td>
+          <td>Rss</td>
+          <td>smem</td>
+          <td>it contains these fields:<a href="https://docs.kernel.org/filesystems/proc.html#:~:text=it%20contains%20these,Pss_Shmem" target="_blank" rel="noopener noreffer "></a><!-- raw HTML omitted -->- Pss_Anon<!-- raw HTML omitted -->- Pss_File<!-- raw HTML omitted -->- Pss_Shmem<!-- raw HTML omitted --></td>
+      </tr>
+      <tr>
+          <td><code>/sys/fs/cgroup/memory/\&lt;unit.path&gt;/memory.usage_in_bytes</code></td>
+          <td>NA</td>
+          <td>systemctl status</td>
+          <td>5.5 usage_in_bytes<a href="https://docs.kernel.org/admin-guide/cgroup-v1/memory.html#usage-in-bytes" title="Permalink to this heading" target="_blank" rel="noopener noreffer "></a><!-- raw HTML omitted --><!-- raw HTML omitted -->For efficiency, as other kernel components, memory cgroup uses some optimization to avoid unnecessary cacheline false sharing. usage_in_bytes is affected by the method and doesn’t show ‘exact’ value of memory (and swap) usage, it’s a fuzz value for efficient access. (Of course, when necessary, it’s synchronized.) If you want to know more exact memory usage, you should use RSS+CACHE(+SWAP) value in memory.stat(see 5.2).</td>
+      </tr>
+  </tbody>
+</table>
+<p>注意到 procfs 的 status 和 statm 完全一致，包含了一个进程中所有 匿名+文件映射+共享内存映射 内存。</p>
+<p>而 smaps_rollup 也是同样的定义，按理来说其数值与上面的值一模一样，但是由于统计方法的差异（status/statm 使用计数器进行统计，smaps 的值是遍历 VMZ 计算来的，所以会更精确），smaps_rollup 的值一般会稍大于 status/statm，但是差异不会很大。</p>
+<blockquote>
+<p>[!quote]
+/proc/pid/statm - memory usage information</p>
+<p>Some of these values are inaccurate because of a kernel-
+internal scalability optimization.  If accurate values are
+required, use <em>/proc/pid/smaps</em> or <em>/proc/pid/smaps_rollup</em>
+instead, which are much slower but provide accurate,
+detailed information.<a href="https://www.man7.org/linux/man-pages/man5/proc_pid_statm.5.html#:~:text=Some%20of%20these,accurate%2C%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20detailed%20information." target="_blank" rel="noopener noreffer "></a></p></blockquote>
+<p>而对于 cgroupfs，其中的 <code>memory.usage_in_bytes</code> 约等于 <code>memory.stat</code> 中的 RSS+CACHE。</p>
+<p>但是 cgroup 的计数方法与 procfs 中的不一样，其采用的是“首次接触时计费法”，即谁先映射一块共享地址，这块地址的内存开销就算在谁头上。因此，cgroup 的内存统计数据有时候会与实际不同，更多会与服务启动顺序相关（例如，一个服务启动得早，相关动态库的开销就算它上面了，而让其它服务使用相关动态库的服务先启动会降低该服务显示的内存使用量）。</p>
+<blockquote>
+<p>[!quote]
+2.3 Shared Page Accounting<a href="https://docs.kernel.org/admin-guide/cgroup-v1/memory.html#shared-page-accounting" title="Permalink to this heading" target="_blank" rel="noopener noreffer "></a></p>
+<p>Shared pages are accounted on the basis of the first touch approach. The cgroup that first touches a page is accounted for the page. The principle behind this approach is that a cgroup that aggressively uses a shared page will eventually get charged for it (once it is uncharged from the cgroup that brought it in &ndash; this will happen on memory pressure).</p></blockquote>
+<h2 id="实践分析">实践分析</h2>
+<p>回到开头的例子，当一个 systemd 服务包含多个进程的时候，为什么有时候 service memory 数值比所有进程的 ps RSS 加起来多，而有时候比单个进程 ps RSS 还要少呢？让我们分情况进行讨论。</p>
+<h3 id="systemctl-status-小于-pstop">systemctl status 小于 ps/top</h3>
+<p>当 systemctl status 显示的 Memory 量比其所有子进程通过 ps/top 命令看到的 RSS 量加起来更少，这是很正常的，也是最常见的。</p>
+<p>这主要是因为 systemctl 对于共享内存空间（如多进程共享的动态库）等的统计规则是“首次接触时计费”，而 ps/top 的 RSS 统计量是会在每个进程中都计入共享的内存空间。</p>
+<p>如下案例，可以看到 systemctl status 的内存用量小于该服务内个进程 RSS 用量的总和：</p>
+<div class="code-block code-line-numbers" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># systemctl status nginx</span>
+</span></span><span class="line"><span class="cl">● nginx.service - A high performance web server and a reverse proxy server
+</span></span><span class="line"><span class="cl">     Loaded: loaded <span class="o">(</span>/usr/lib/systemd/system/nginx.service<span class="p">;</span> enabled<span class="p">;</span> vendor preset: enabled<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Active: active <span class="o">(</span>running<span class="o">)</span> <span class="o">(</span>thawing<span class="o">)</span> since Wed 2025-06-11 17:39:02 CST<span class="p">;</span> <span class="m">6</span> days ago
+</span></span><span class="line"><span class="cl">   Main PID: <span class="m">129137</span> <span class="o">(</span>nginx<span class="o">)</span>
+</span></span><span class="line"><span class="cl">      Tasks: <span class="m">3</span> <span class="o">(</span>limit: 4629<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Memory: 9.9M
+</span></span><span class="line"><span class="cl">     CGroup: /system.slice/nginx.service
+</span></span><span class="line"><span class="cl">             ├─129137 nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl">             └─129139 nginx: worker process
+</span></span><span class="line"><span class="cl"><span class="c1"># ps aux | head -1 &amp;&amp; ps aux | grep nginx</span>
+</span></span><span class="line"><span class="cl">USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+</span></span><span class="line"><span class="cl">root      <span class="m">129137</span>  0.0  0.0  <span class="m">43312</span>  <span class="m">2340</span> ?        Ss   Jun11   0:00 nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl">www-data  <span class="m">129139</span>  0.0  0.3 <span class="m">121700</span> <span class="m">12152</span> ?        Sl   Jun11   0:15 nginx: worker process</span></span></code></pre></div></div>
+<h3 id="systemctl-status-大于-pstop">systemctl status 大于 ps/top</h3>
+<p>当 systemctl status 显示的 Memory 量比其所有进程通过 ps/top 命令看到的 RSS 量加起来更多时，这种情况也是很正常的。</p>
+<p>上文中我们提到，systemctl status 的数据源于 cgroup 中的 memory.usage_in_bytes，而该文件的用量近似于 memory.stat 中的 RSS+CACHE。这里的 cache 除了常规的共享空间外，还包含了内核为该 cgroup 缓存的文件数据大小，属于内存中的页缓存部分。这部分缓存是操作系统为了提高文件 I/O 性能而保留的，缓存内容是文件的磁盘内容副本。</p>
+<p>如下案例，我们可以看到 systemctl status 的内存用量远大于该服务内个进程 RSS 用量的总和：</p>
+<div class="code-block code-line-numbers" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># systemctl status nginx</span>
+</span></span><span class="line"><span class="cl">● nginx.service - A high performance web server and a reverse proxy server
+</span></span><span class="line"><span class="cl">     Loaded: loaded <span class="o">(</span>/usr/lib/systemd/system/nginx.service<span class="p">;</span> enabled<span class="p">;</span> vendor preset: enabled<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Active: active <span class="o">(</span>running<span class="o">)</span> <span class="o">(</span>thawing<span class="o">)</span> since Sat 2025-05-24 02:36:41 CST<span class="p">;</span> <span class="m">3</span> weeks <span class="m">3</span> days ago
+</span></span><span class="line"><span class="cl">    Process: <span class="m">2083</span> <span class="nv">ExecReload</span><span class="o">=</span>/usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span> -s reload <span class="o">(</span><span class="nv">code</span><span class="o">=</span>exited, <span class="nv">status</span><span class="o">=</span>0/SUCCESS<span class="o">)</span>
+</span></span><span class="line"><span class="cl">   Main PID: <span class="m">685</span> <span class="o">(</span>nginx<span class="o">)</span>
+</span></span><span class="line"><span class="cl">      Tasks: <span class="m">3</span> <span class="o">(</span>limit: 4629<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Memory: 31.6M
+</span></span><span class="line"><span class="cl">     CGroup: /system.slice/nginx.service
+</span></span><span class="line"><span class="cl">             ├─ <span class="m">685</span> nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl">             └─2107 nginx: worker process
+</span></span><span class="line"><span class="cl"><span class="c1"># ps aux | head -1 &amp;&amp; ps aux | grep nginx</span>
+</span></span><span class="line"><span class="cl">USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+</span></span><span class="line"><span class="cl">root         <span class="m">685</span>  0.0  0.1  <span class="m">43684</span>  <span class="m">7832</span> ?        Ss   May24   0:00 nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl">www-data    <span class="m">2107</span>  0.0  0.3 <span class="m">121748</span> <span class="m">12720</span> ?        Sl   May24   2:32 nginx: worker process</span></span></code></pre></div></div>
+<p>查看相应的 memory.stat 文件，可以看到其 cache 比例特别高，而 RSS 距离 systemctl status 显示的数据相差甚远：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># head -2 /sys/fs/cgroup/memory/system.slice/nginx.service/memory.stat</span>
+</span></span><span class="line"><span class="cl">cache <span class="m">24866816</span>
+</span></span><span class="line"><span class="cl">rss <span class="m">7581696</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># head -2 /sys/fs/cgroup/memory/system.slice/nginx.service/memory.stat | \</span>
+</span></span><span class="line"><span class="cl">&gt; awk <span class="s1">&#39;{ printf &#34;%s %.2f MiB\n&#34;, $1, $2 / 1024 / 1024 }&#39;</span>
+</span></span><span class="line"><span class="cl">cache 23.71 MiB
+</span></span><span class="line"><span class="cl">rss 7.23 MiB</span></span></code></pre></div></div>
+<p>要如何说明这里的 cache 中包含了很多内核缓存的文件数据呢？让我们清理一下缓存试试：</p>
+<div class="code-block code-line-numbers open" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># echo 3 &gt; /proc/sys/vm/drop_caches</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># head -2 /sys/fs/cgroup/memory/system.slice/nginx.service/memory.stat | \</span>
+</span></span><span class="line"><span class="cl">&gt; awk <span class="s1">&#39;{ printf &#34;%s %.2f MiB\n&#34;, $1, $2 / 1024 / 1024 }&#39;</span>
+</span></span><span class="line"><span class="cl">cache 1.79 MiB
+</span></span><span class="line"><span class="cl">rss 7.23 MiB
+</span></span><span class="line"><span class="cl"><span class="c1"># systemctl status nginx</span>
+</span></span><span class="line"><span class="cl">● nginx.service - A high performance web server and a reverse proxy server
+</span></span><span class="line"><span class="cl">     Loaded: loaded <span class="o">(</span>/usr/lib/systemd/system/nginx.service<span class="p">;</span> enabled<span class="p">;</span> vendor preset: enabled<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Active: active <span class="o">(</span>running<span class="o">)</span> <span class="o">(</span>thawing<span class="o">)</span> since Sat 2025-05-24 02:36:41 CST<span class="p">;</span> <span class="m">3</span> weeks <span class="m">3</span> days ago
+</span></span><span class="line"><span class="cl">    Process: <span class="m">2083</span> <span class="nv">ExecReload</span><span class="o">=</span>/usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span> -s reload <span class="o">(</span><span class="nv">code</span><span class="o">=</span>exited, <span class="nv">status</span><span class="o">=</span>0/SUCCESS<span class="o">)</span>
+</span></span><span class="line"><span class="cl">   Main PID: <span class="m">685</span> <span class="o">(</span>nginx<span class="o">)</span>
+</span></span><span class="line"><span class="cl">      Tasks: <span class="m">3</span> <span class="o">(</span>limit: 4629<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Memory: 9.7M
+</span></span><span class="line"><span class="cl">     CGroup: /system.slice/nginx.service
+</span></span><span class="line"><span class="cl">             ├─ <span class="m">685</span> nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl">             └─2107 nginx: worker process</span></span></code></pre></div></div>
+<p>可以看到，清理缓存后，cache 一下子少了很多（但是不是全没了，因为还包含共享内存等缓存空间），而 systemctl status 的数据也回到了我们上个案例中的水平，足以验证我们的理论是完全正确的。</p>
+<h3 id="systemctl-status-等于-pstop">systemctl status 等于 ps/top</h3>
+<p>那么可能就有人要问了，systemctl status 可能小于 ps/top 的值，也可能大于 ps/top 的值，那能不能基本等于这个值呢？</p>
+<p>让我们回忆上面的内容，当 systemd service 启动时，所有加载的数据都在私有内存空间（或首次加载的共享内存空间）的话，由于 ps/top 也会计算到这些信息，这个时候两者统计的 RSS 信息就基本一致了。当然也别忘了 cgroup 的 cache 还附加了内核缓存的文件数据大小，这个也要清理一下。</p>
+<p>如此操作之后，systemctl status 的值应该就基本等于 ps/top 的值了，由于统计口径的差别，两者可能会有一定的偏差，但理论上来说差异不会太大。</p>
+<h2 id="总结">总结</h2>
+<p>在上面的文档中，我们一共分析了这些命令：ps、top、smem、systemctl status。从这些命令的不同实现方法中，我们也可以看到它们的作者在实现时的思考：</p>
+<ul>
+<li>ps/top 命令数据取自 procfs 中的 statm 和 status，两者数据完全一致，反应了所有映射到一个程序的内存空间的内存总量。</li>
+<li>smem 稍微复杂，分了 USS, PSS, RSS 几个指标，其中：
+<ul>
+<li>USS 表示一个进程独享的内存量，反应了 kill 掉这个进程能释放的空间</li>
+<li>PSS 表示一个进程分摊后的负载，是 USS + (共享部分内存空间 / 共享进程数)</li>
+<li>RSS 与 ps/top 的指标基本相同，仅因为统计口径不同数据稍有偏差</li>
+</ul>
+</li>
+<li>systemctl status 使用了特殊的“首次接触时计费”统计法，而且还包含了内存缓存的文件信息，反应了“启动这个服务消耗的内存”。</li>
+</ul>
+<p>因此，这些命令适用的场景不同，我们在分析系统内存占用时，需要根据具体的需求选择合适的工具：</p>
+<ul>
+<li><strong>当需要快速了解进程的整体内存映射情况时</strong>，如进行系统资源初步评估或排查进程是否异常占用内存，使用 <code>ps</code> 或 <code>top</code> 是最直接的选择，它们开销小、信息全面，但无法细化内存来源或共享程度。</li>
+<li><strong>当需要准确评估某个服务或进程对系统内存的真实负担时</strong>，推荐使用 <code>smem</code>。特别是在容器化、多进程共享库广泛使用的系统中，<code>smem</code> 提供的 USS/PSS 能够更真实地反映每个进程的“责任内存”，避免因共享库导致的重复计算。</li>
+<li><strong>当我们希望从系统服务的角度出发，评估每个 systemd 管理的服务对系统资源的消耗时</strong>，<code>systemctl status</code> 提供的“首次接触时计费”是一种更贴近服务视角的内存估算方式。它能够包含服务启动时加载的共享库和缓存文件所带来的额外内存开销，对容量规划和资源分配更有参考意义。</li>
+</ul>
+<p>最后需要注意的是，不同命令在统计口径上存在差异，有些数据来源于内核快照，有些来源于动态计算，可能在高负载或频繁变化的场景下出现偏差。因此在分析复杂内存问题时，我们可能需要结合多种工具交叉验证，并深入查看 <code>/proc/&lt;pid&gt;/smaps</code> 等底层接口以获取更精细的数据支持。</p>
+<h2 id="资源">资源</h2>
+<ol>
+<li><a href="https://gitlab.com/procps-ng/procps" target="_blank" rel="noopener noreffer ">procps-ng / procps · GitLab</a></li>
+<li><a href="https://github.com/systemd/systemd" target="_blank" rel="noopener noreffer ">systemd/systemd: The systemd System and Service Manager</a></li>
+<li><a href="https://github.com/torvalds/linux/tree/v4.14" target="_blank" rel="noopener noreffer ">torvalds/linux at v4.14</a></li>
+<li><a href="https://docs.kernel.org/admin-guide/cgroup-v1/memory.html" target="_blank" rel="noopener noreffer ">Memory Resource Controller — The Linux Kernel documentation</a></li>
+<li><a href="https://stackoverflow.com/questions/30744333/linux-os-proc-pid-smaps-vs-proc-pid-statm/30799817#30799817" target="_blank" rel="noopener noreffer ">memory management - Linux OS: /proc/[pid]/smaps vs /proc/[pid]/statm - Stack Overflow</a></li>
+</ol>
+</div><div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>Updated on 2025-06-18</span>
+            </div></div>
+        <div class="post-info-line">
+            <div class="post-info-md"><span>
+                            <a class="link-to-markdown" href="/posts/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90/index.md" target="_blank">Read Markdown</a>
+                        </span></div>
+            <div class="post-info-share">
+                <span><a href="javascript:void(0);" title="Share on X" data-sharer="x" data-url="https://focksor.github.io/posts/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90/" data-title="Linux 内存统计方法差异分析" data-hashtags="Programming"><i class="fab fa-x-twitter fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="Share on Threads" data-sharer="threads" data-url="https://focksor.github.io/posts/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90/" data-title="Linux 内存统计方法差异分析"><i class="fab fa-threads fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="Share on Facebook" data-sharer="facebook" data-url="https://focksor.github.io/posts/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90/" data-hashtag="Programming"><i class="fab fa-facebook-square fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="Share on Hacker News" data-sharer="hackernews" data-url="https://focksor.github.io/posts/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90/" data-title="Linux 内存统计方法差异分析"><i class="fab fa-hacker-news fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="Share on Line" data-sharer="line" data-url="https://focksor.github.io/posts/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90/" data-title="Linux 内存统计方法差异分析"><i data-svg-src="https://cdn.jsdelivr.net/npm/simple-icons@14.9.0/icons/line.svg" aria-hidden="true"></i></a><a href="javascript:void(0);" title="Share on 微博" data-sharer="weibo" data-url="https://focksor.github.io/posts/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90/" data-title="Linux 内存统计方法差异分析"><i class="fab fa-weibo fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="Share on Diaspora" data-sharer="diaspora" data-url="https://focksor.github.io/posts/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90/" data-title="Linux 内存统计方法差异分析" data-description=""><i class="fab fa-diaspora fa-fw" aria-hidden="true"></i></a><a href="https://t.me/share/url?url=https%3a%2f%2ffocksor.github.io%2fposts%2flinux-%25E5%2586%2585%25E5%25AD%2598%25E7%25BB%259F%25E8%25AE%25A1%25E6%2596%25B9%25E6%25B3%2595%25E5%25B7%25AE%25E5%25BC%2582%25E5%2588%2586%25E6%259E%2590%2f&amp;text=Linux%20%e5%86%85%e5%ad%98%e7%bb%9f%e8%ae%a1%e6%96%b9%e6%b3%95%e5%b7%ae%e5%bc%82%e5%88%86%e6%9e%90" target="_blank" title="Share on Telegram"><i class="fab fa-telegram fa-fw" aria-hidden="true"></i></a></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><i class="fas fa-tags fa-fw" aria-hidden="true"></i>&nbsp;<a href="/tags/programming/">Programming</a></section>
+        <section>
+            <span><a href="javascript:void(0);" onclick="window.history.back();">Back</a></span>&nbsp;|&nbsp;<span><a href="/">Home</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav"><a href="/posts/python-%E5%88%A0%E9%99%A4%E5%B7%B2%E5%AF%BC%E5%85%A5%E7%9A%84%E6%A8%A1%E5%9D%97/" class="prev" rel="prev" title="Python 删除已导入的模块"><i class="fas fa-angle-left fa-fw" aria-hidden="true"></i>Python 删除已导入的模块</a></div>
+</div>
+<div id="comments"><div id="gitalk" class="comment"></div><noscript>
+                Please enable JavaScript to view the comments powered by <a href="https://github.com/gitalk/gitalk">Gitalk</a>.
+            </noscript></div></article></div>
+            </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">Powered by <a href="https://gohugo.io/" target="_blank" rel="noopener noreffer" title="Hugo 0.145.0">Hugo</a> | Theme - <a href="https://github.com/dillonzq/LoveIt" target="_blank" rel="noopener noreffer" title="LoveIt 0.3.1-DEV"><i class="far fa-kiss-wink-heart fa-fw" aria-hidden="true"></i> LoveIt</a>
+                </div><div class="footer-line" itemscope itemtype="http://schema.org/CreativeWork"><i class="far fa-copyright fa-fw" aria-hidden="true"></i><span itemprop="copyrightYear">2025</span><span class="author" itemprop="copyrightHolder">&nbsp;<a href="https://github.com/focksor" target="_blank">focksor</a></span></div>
+    
+        
+        <script async src=" //busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js "></script>
+    
+
+    
+        
+            <section>
+                
+                    <span id="busuanzi_container_value_site_pv"><i class="far fa-eye fa-fw"></i>
+                        
+                        <span id="busuanzi_value_site_pv"></span>
+                    </span>
+                
+
+                
+                    &nbsp;|&nbsp;              
+                
+
+                
+                    <span id="busuanzi_container_value_site_uv"><i class="fa fa-user"></i>
+                        
+                        <span id="busuanzi_value_site_uv"></span>
+                    </span>
+                
+            </section>
+        
+
+        
+        
+    
+
+</div>
+    </footer></div>
+
+        <div id="fixed-buttons"><a href="#" id="back-to-top" class="fixed-button" title="Back to Top">
+                <i class="fas fa-arrow-up fa-fw" aria-hidden="true"></i>
+            </a>
+        </div>
+
+        <div id="fixed-buttons-hidden"><a href="#" id="view-comments" class="fixed-button" title="View Comments">
+                <i class="fas fa-comment fa-fw" aria-hidden="true"></i>
+            </a>
+        </div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gitalk@1.7.2/dist/gitalk.min.css"><script src="https://cdn.jsdelivr.net/npm/gitalk@1.7.2/dist/gitalk.min.js"></script><script src="https://cdn.jsdelivr.net/npm/autocomplete.js@0.38.1/dist/autocomplete.min.js"></script><script src="https://cdn.jsdelivr.net/npm/algoliasearch@5.20.2/dist/lite/builds/browser.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/lazysizes@5.3.2/lazysizes.min.js"></script><script src="https://cdn.jsdelivr.net/npm/clipboard@2.0.11/dist/clipboard.min.js"></script><script src="https://cdn.jsdelivr.net/npm/sharer.js@0.5.2/sharer.min.js"></script><script>window.config={"comment":{"gitalk":{"admin":["focksor"],"clientID":"Ov23liyZs5vJL7hXYWt1","clientSecret":"51bec3246f37ba58c52532371c5de0ef10a62447","id":"2025-06-18T00:10:53+08:00","owner":"focksor","repo":"focksor.github.io","title":"Linux 内存统计方法差异分析"}},"search":{"algoliaAppID":"AQWVSYVPER","algoliaIndex":"focksor's blog","algoliaSearchKey":"fc7664b3c32cda6a4b6ef3af7ecb2c51","highlightTag":"em","maxResultLength":10,"noResultsFound":"No results found","snippetLength":30,"type":"algolia"}};</script><script src="/js/theme.min.js"></script><script>
+            var doNotTrack = false;
+            if ( false ) {
+                var dnt = (navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack);
+                var doNotTrack = (dnt == "1" || dnt == "yes");
+            }
+            if (!doNotTrack) {
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+                gtag('config', 'G-HTSXK42TV5');
+            }
+        </script><script src="https://www.googletagmanager.com/gtag/js?id=G-HTSXK42TV5" async></script></body>
+</html>

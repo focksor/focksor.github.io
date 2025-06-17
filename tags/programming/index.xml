@@ -4,7 +4,43 @@
         <link>https://focksor.github.io/tags/programming/</link>
         <description>Programming - Tag - focksor&#39;s blog</description>
         <generator>Hugo -- gohugo.io</generator><language>en-us</language><managingEditor>focksor@outlook.com (focksor)</managingEditor>
-            <webMaster>focksor@outlook.com (focksor)</webMaster><lastBuildDate>Fri, 13 Jun 2025 08:00:00 &#43;0800</lastBuildDate><atom:link href="https://focksor.github.io/tags/programming/" rel="self" type="application/rss+xml" /><item>
+            <webMaster>focksor@outlook.com (focksor)</webMaster><lastBuildDate>Wed, 18 Jun 2025 00:10:53 &#43;0800</lastBuildDate><atom:link href="https://focksor.github.io/tags/programming/" rel="self" type="application/rss+xml" /><item>
+    <title>Linux 内存统计方法差异分析</title>
+    <link>https://focksor.github.io/posts/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90/</link>
+    <pubDate>Wed, 18 Jun 2025 00:10:53 &#43;0800</pubDate>
+    <author>focksor</author>
+    <guid>https://focksor.github.io/posts/linux-%E5%86%85%E5%AD%98%E7%BB%9F%E8%AE%A1%E6%96%B9%E6%B3%95%E5%B7%AE%E5%BC%82%E5%88%86%E6%9E%90/</guid>
+    <description><![CDATA[<h2 id="概述">概述</h2>
+<p>本文将探索 Linux 下不同内存统计方法的差异，以及描述相应方法的适用场景。</p>
+<p>你可能想要知道 top, ps, systemctl status, smem 等工具或命令显示的内存用量分别有什么含义，其显示的数字又为什么各有差异，本文将进行深入分析，带你了解其中的奥妙，并让你清楚应该在什么场景下应该使用哪个指标。</p>
+<h2 id="背景">背景</h2>
+<p>笔者在分析 Linux 机器上的内存使用情况时，发现一个奇怪的现象：<code>systemctl</code> 和 <code>ps</code> 的内存（RSS）数据对不上，两者有时候会无法形成逻辑上的关联关系。</p>
+<p>例如，在分析 Nginx 应用的内存使用情况时，笔者观察到了如下的数据：</p>
+<div class="code-block code-line-numbers" style="counter-reset: code-block 0">
+    <div class="code-header language-shell">
+        <span class="code-title"><i class="arrow fas fa-angle-right fa-fw" aria-hidden="true"></i></span>
+        <span class="ellipses"><i class="fas fa-ellipsis-h fa-fw" aria-hidden="true"></i></span>
+        <span class="copy" title="Copy to clipboard"><i class="far fa-copy fa-fw" aria-hidden="true"></i></span>
+    </div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="c1"># uname -a</span>
+</span></span><span class="line"><span class="cl">Linux firewall 5.10.204-g39484bf51955 <span class="c1">#1 SMP Tue Jun 10 01:12:29 CST 2025 x86_64 GNU/Linux</span>
+</span></span><span class="line"><span class="cl"><span class="c1"># systemctl status nginx</span>
+</span></span><span class="line"><span class="cl">● nginx.service - A high performance web server and a reverse proxy server
+</span></span><span class="line"><span class="cl">     Loaded: loaded <span class="o">(</span>/usr/lib/systemd/system/nginx.service<span class="p">;</span> enabled<span class="p">;</span> vendor preset: enabled<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Active: active <span class="o">(</span>running<span class="o">)</span> since Tue 2025-06-10 09:11:03 CST<span class="p">;</span> 2h 31min ago
+</span></span><span class="line"><span class="cl">    Process: <span class="m">3954</span> <span class="nv">ExecReload</span><span class="o">=</span>/usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span> -s reload <span class="o">(</span><span class="nv">code</span><span class="o">=</span>exited, <span class="nv">status</span><span class="o">=</span>0/SUCCESS<span class="o">)</span>
+</span></span><span class="line"><span class="cl">   Main PID: <span class="m">665</span> <span class="o">(</span>nginx<span class="o">)</span>
+</span></span><span class="line"><span class="cl">      Tasks: <span class="m">3</span> <span class="o">(</span>limit: 5617<span class="o">)</span>
+</span></span><span class="line"><span class="cl">     Memory: 9.9M
+</span></span><span class="line"><span class="cl">     CGroup: /system.slice/nginx.service
+</span></span><span class="line"><span class="cl">             ├─ <span class="m">665</span> nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl">             └─3958 nginx: worker process
+</span></span><span class="line"><span class="cl"><span class="c1"># ps aux | head -1 &amp;&amp; ps aux | grep nginx</span>
+</span></span><span class="line"><span class="cl">USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+</span></span><span class="line"><span class="cl">root         <span class="m">665</span>  0.0  0.0 <span class="m">113068</span>  <span class="m">8820</span> ?        Ss   09:11   0:00 nginx: master process /usr/sbin/nginx -g daemon on<span class="p">;</span> master_process on<span class="p">;</span>
+</span></span><span class="line"><span class="cl">www-data    <span class="m">3958</span>  0.0  0.0 <span class="m">182940</span> <span class="m">12832</span> ?        Sl   09:12   0:00 nginx: worker process</span></span></code></pre></div></div>
+<p>如上我们可以从 <code>systemctl status nginx</code> 中看到，nginx 启动了，分别是一个 master 和一个 worker，两者的内存一共占用了 9.9M。而当我们使用 ps 指令去查看时，发现两个进程的 RSS 内存使用量分别是 8820 和 12832，即总共用了 8820+12832=21652kB=21.14MB。明显大于 <code>systemctl status</code> 显示的内存用量。</p>]]></description>
+</item>
+<item>
     <title>Python 删除已导入的模块</title>
     <link>https://focksor.github.io/posts/python-%E5%88%A0%E9%99%A4%E5%B7%B2%E5%AF%BC%E5%85%A5%E7%9A%84%E6%A8%A1%E5%9D%97/</link>
     <pubDate>Fri, 13 Jun 2025 08:00:00 &#43;0800</pubDate>
